@@ -1,0 +1,5 @@
+*.pyc
+*.rar
+*.zip
+logs/
+.ipynb_checkpoints/

@@ -180,9 +180,6 @@ class PortfolioEnv(gym.Env):
             close_prices2 = self.df.loc[self.day]['close'].to_numpy()
             balance2 = np.sum(self.current_state * close_prices2) + self.cash
 
-            #print(self.state)
-            # calcualte portfolio return
-            # individual stocks' return * weight
             portfolio_return = (balance2 - balance) / balance 
             # update portfolio value
             new_portfolio_value = self.portfolio_value * (1 + portfolio_return)
@@ -193,7 +190,6 @@ class PortfolioEnv(gym.Env):
             self.date_memory.append(self.data.date.unique()[0])            
             self.asset_memory.append(new_portfolio_value)
 
-
             # the reward is the new portfolio value or end portfolo value
             self.reward = portfolio_return + add_reward#new_portfolio_value 
             #print("Step reward: ", self.reward)
@@ -203,56 +199,14 @@ class PortfolioEnv(gym.Env):
     
     def set_state(self):
         self.data = self.df.loc[self.day,:]
-        self.covs = []#self.data['cov_list'].values[0][0]
+        self.covs = []
         self.xtra = self.data['cov_xtra'].values[0]
 
-        # if len(self.data['cov_xtra'].values[0]) > 0:
-        #     self.xtra = self.data['cov_xtra'].values[0]
-        #     print(self.xtra)
-        #     self.state = np.append(np.array(self.covs), np.array(self.xtra), axis = 0)
-        # else:
-        #     self.state = self.covs
         ind = np.array([self.data[tech].values.tolist() for tech in self.tech_indicator_list]).flatten()
-        #self.state = ind
         self.state = np.append(self.xtra, ind, axis=0)
         self.state = np.append(self.actions_norm, self.state, axis=0)
         self.state = self.state / 100
-    
-    def add_technical_indicator(self, data):
-        """
-        calculate technical indicators
-        use stockstats package to add technical inidactors
-        :param data: (df) pandas dataframe
-        :return: (df) pandas dataframe
-        """
-        df = data.copy()
-        df = df.sort_values(by=["tic", "date"])
-        stock = df.copy()
-        unique_ticker = stock.tic.unique()
-
-        for indicator in self.tech_indicator_list:
-            indicator_df = pd.DataFrame()
-            for i in range(len(unique_ticker)):
-                try:
-                    temp_indicator = stock[stock.tic == unique_ticker[i]][indicator]
-                    temp_indicator = pd.DataFrame(temp_indicator)
-                    temp_indicator["tic"] = unique_ticker[i]
-                    temp_indicator["date"] = df[df.tic == unique_ticker[i]][
-                        "date"
-                    ].to_list()
-
-                    indicator_df = pd.concat(
-                        [indicator_df, temp_indicator], axis=0, ignore_index=True
-                    )
-                except Exception as e:
-                    print(e)
-            df = df.merge(
-                indicator_df[["tic", "date", indicator]], on=["tic", "date"], how="left"
-            )
-        df = df.sort_values(by=["date", "tic"])
-        return df
-
-
+  
     def reset(self):
         self.asset_memory = [self.initial_amount]
         if self.reset_to_zero:
@@ -277,23 +231,7 @@ class PortfolioEnv(gym.Env):
     def render(self, mode='human'):
         return self.state
         
-    def softmax_normalization(self, actions):
-        numerator = np.exp(actions)
-        denominator = np.sum(np.exp(actions))
-        softmax_output = numerator/denominator
-        #return softmax_output
-        return self.get_weights(softmax_output)
-    
-    def get_weights(self, act):
-        ret = act.copy()
-        _mean = act.mean()
-        sum_gr = (act[act >= _mean]).sum()
-        sum_ls = (act[act < _mean]).sum()
-        ret[act < _mean] = 0
-        ret[act >= _mean] += act[act >= _mean] / sum_gr * sum_ls
-        return ret
-
-    
+  
     def save_asset_memory(self):
         date_list = self.date_memory
         portfolio_return = self.portfolio_return_memory
