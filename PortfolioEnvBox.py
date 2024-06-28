@@ -82,6 +82,7 @@ class PortfolioEnv(gym.Env):
         self.state_space = state_space
         self.tech_indicator_list = tech_indicator_list
         self.reset_to_zero = reset_to_zero
+        self.total_commission = 0
         
         self.actions = np.array([0] * stock_dim)
         self.actions_norm = np.array([0] * stock_dim)
@@ -101,7 +102,8 @@ class PortfolioEnv(gym.Env):
     def step(self, actions):
         if len(actions) == 2:
             actions = actions[0]        
-
+        
+        self.commission = 0
         self.actions_norm = actions
         if sum(actions) > 0:
             self.actions_norm = actions / sum(actions) * self.stock_dim
@@ -112,8 +114,7 @@ class PortfolioEnv(gym.Env):
         self.terminal = self.day >= len(self.df.index.unique())-1
         close_prices = self.df.loc[self.day]['close'].to_numpy()
         balance = np.sum(self.current_state * close_prices) + self.cash #баланс счета
-
-        if balance < 500_000:
+        if balance < 800_000:
             self.terminal = True
         # print(actions)
 
@@ -141,7 +142,12 @@ class PortfolioEnv(gym.Env):
             add_reward = 0
             if h <= self.hmax:
                 sell_money = np.sum(self.current_state[actions == 0] * close_prices[actions == 0])
-                self.cash += sell_money * (1 - self.transaction_cost_pct) #выручили денег от продажи (за вычетом комиссии)
+                sell_commission = abs(sell_money * self.transaction_cost_pct)
+
+                self.commission += sell_commission
+                self.cash += sell_money #выручили денег от продажи (за вычетом комиссии)
+                self.cash -= sell_commission
+
                 self.current_state[actions == 0] = 0 #обнулили позиции (те что продали)
 
                 securities_to_be = np.logical_or(self.current_state > 0, actions > 0) #сколько бумаг будет (те что были + те что купить)
@@ -150,10 +156,16 @@ class PortfolioEnv(gym.Env):
                 else:
                     money_per_security = balance
 
-                target_quantity = np.int32(money_per_security/close_prices * securities_to_be) #сколько должно быть бумаг
+                money_per_security *= (1 - self.transaction_cost_pct)
+                target_quantity = np.int32(money_per_security / close_prices * securities_to_be) #сколько должно быть бумаг
 
                 buy_sell = target_quantity - self.current_state #сколько требуется докупить-допродать
-                self.cash -= np.sum(buy_sell * close_prices) * (1 + self.transaction_cost_pct) #покупки-продажи (плюс комиссии)
+                buy_money = np.sum(buy_sell * close_prices) #денег от купить-продать
+                buy_commission = np.sum(np.abs(buy_sell) * close_prices * self.transaction_cost_pct)
+                self.commission += buy_commission
+
+                self.cash -= buy_money
+                self.cash -= buy_commission #покупки-продажи (плюс комиссии)
                 self.current_state = target_quantity
             else:
                 add_reward = -1
@@ -162,6 +174,7 @@ class PortfolioEnv(gym.Env):
             self.last_day_memory = self.data
             #load next state
             self.day += 1
+            self.total_commission += self.commission
             self.set_state()
 
             close_prices2 = self.df.loc[self.day]['close'].to_numpy()
@@ -170,7 +183,7 @@ class PortfolioEnv(gym.Env):
             #print(self.state)
             # calcualte portfolio return
             # individual stocks' return * weight
-            portfolio_return = (balance2 - balance) / balance
+            portfolio_return = (balance2 - balance) / balance 
             # update portfolio value
             new_portfolio_value = self.portfolio_value * (1 + portfolio_return)
             self.portfolio_value = new_portfolio_value
@@ -191,7 +204,7 @@ class PortfolioEnv(gym.Env):
     def set_state(self):
         self.data = self.df.loc[self.day,:]
         self.covs = []#self.data['cov_list'].values[0][0]
-        self.xtra = []#self.data['cov_xtra'].values[0]
+        self.xtra = self.data['cov_xtra'].values[0]
 
         # if len(self.data['cov_xtra'].values[0]) > 0:
         #     self.xtra = self.data['cov_xtra'].values[0]
@@ -200,9 +213,10 @@ class PortfolioEnv(gym.Env):
         # else:
         #     self.state = self.covs
         ind = np.array([self.data[tech].values.tolist() for tech in self.tech_indicator_list]).flatten()
-        self.state = ind
-        #self.state = np.append(self.xtra, ind, axis=0)
+        #self.state = ind
+        self.state = np.append(self.xtra, ind, axis=0)
         self.state = np.append(self.actions_norm, self.state, axis=0)
+        self.state = self.state / 100
     
     def add_technical_indicator(self, data):
         """
@@ -244,10 +258,11 @@ class PortfolioEnv(gym.Env):
         if self.reset_to_zero:
             self.day = 0
         else:
-            self.day = random.randint(0, max(self.df.index) - 1)
+            self.day = random.randint(0, int((max(self.df.index) - 1) / 2)) #reset перекидывает в первую половину
         self.set_state()
         
         self.portfolio_value = self.initial_amount
+        self.total_commission = 0
         #self.cost = 0
         #self.trades = 0
         self.terminal = False 

@@ -8,8 +8,10 @@ from finrl.meta.preprocessor.preprocessors import FeatureEngineer
 
 class FeaturesAdder():
     def __init__(self, lookback = 22):
-        self.indicators = ['HL_rsi12_up', 'HL_rsi12_down', 'rsi12', "MOM"]#"rsi_12", "cci_12", "dx_12"] #config.INDICATORS
-        self.cov_xtra_names = []# ['IMOEX', 'GD', 'MMM']#, 'BZ', 'USD']
+        self.rsi_period = 12
+        self.rsi_high_low = 6
+        self.indicators = ['HL_rsi12_up', 'HL_rsi12_down', 'rsi12', 'obv']#"rsi_12", "cci_12", "dx_12"] #config.INDICATORS
+        self.cov_xtra_names = ['BZ', 'GD', 'IMOEX']#, 'USD']
         self.lookback = lookback
 
     def Process(self, df):
@@ -37,14 +39,18 @@ class FeaturesAdder():
                 _high  = tic_data['high'].to_numpy()
                 _low   = tic_data['low'].to_numpy()
                 _close = tic_data['close'].to_numpy()
-                rsi12 = ta.RSI(_close, timeperiod=12)
-                hl_rsi12 = self.HL(rsi12, 6)
-                mom = ta.MOM(_close, timeperiod=12)
+                _volume = tic_data['volume'].to_numpy()
+                rsi12 = ta.RSI(_close, timeperiod = self.rsi_period)
+                hl_rsi12 = self.HL(rsi12, self.rsi_high_low)
+                
+                obv = ta.OBV(_close, _volume) / 1e7
+                #mom = ta.MOM(_close, timeperiod=12)
                 #temp_indicator = stock[stock.tic == unique_ticker[i]][indicator]
                 u, l = hl_rsi12
                 temp_indicator = pd.DataFrame({'HL_rsi12_up' : u, 'HL_rsi12_down' : l})
-                temp_indicator["MOM"] = mom
+                #temp_indicator["MOM"] = mom
                 temp_indicator["rsi12"] = rsi12
+                temp_indicator["obv"] = obv
                 temp_indicator["tic"] = unique_ticker[i]
                 temp_indicator["date"] = stock[stock.tic == unique_ticker[i]][
                     "date"
@@ -72,8 +78,8 @@ class FeaturesAdder():
         for i in tqdm(range(self.lookback, len(df.index.unique()))):
             data_lookback = df.loc[i-self.lookback:i,:]
             price_lookback = data_lookback.pivot_table(index = 'date', columns = 'tic', values = 'close')
-            price_lookback['MMM'] = price_lookback['MM']
-            cov_names = list(set(price_lookback.columns)-set(self.cov_xtra_names))
+            #price_lookback['MMM'] = price_lookback['MM']
+            #cov_names = list(set(price_lookback.columns)-set(self.cov_xtra_names))
             return_lookback = price_lookback.dropna()
             return_list.append(return_lookback)
 
